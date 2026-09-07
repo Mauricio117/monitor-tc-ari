@@ -35,24 +35,45 @@ def obtener_valores():
     })
     resp.raise_for_status()
 
-    # IMPORTANTE: thousands=None evita que pandas confunda la coma decimal
-    # costarricense ("447,10") con un separador de miles anglosajón.
     tablas = pd.read_html(
         StringIO(resp.text),
         converters={"Compra": str, "Venta": str},
         thousands=None,
     )
 
+    def normalizar(col):
+        return str(col).strip().lower()
+
     df = None
     for t in tablas:
-        if {"Entidad Autorizada", "Compra", "Venta"}.issubset(set(t.columns)):
+        cols_norm = [normalizar(c) for c in t.columns]
+        tiene_entidad = any("entidad autorizada" in c for c in cols_norm)
+        tiene_compra = any(c == "compra" for c in cols_norm)
+        tiene_venta = any(c == "venta" for c in cols_norm)
+        if tiene_entidad and tiene_compra and tiene_venta:
+            # Renombrar columnas a nombres limpios para no depender del texto exacto
+            mapa = {}
+            for c in t.columns:
+                cn = normalizar(c)
+                if "entidad autorizada" in cn:
+                    mapa[c] = "Entidad Autorizada"
+                elif cn == "compra":
+                    mapa[c] = "Compra"
+                elif cn == "venta":
+                    mapa[c] = "Venta"
+            t = t.rename(columns=mapa)
             df = t
             break
 
     if df is None:
-        raise ValueError("No se encontró la tabla esperada (columnas Entidad Autorizada/Compra/Venta).")
+        # Debug: mostramos qué columnas SÍ se encontraron, para diagnosticar más rápido
+        columnas_vistas = [list(t.columns) for t in tablas]
+        raise ValueError(
+            "No se encontró la tabla esperada (columnas Entidad Autorizada/Compra/Venta). "
+            f"Tablas encontradas: {len(tablas)}. Columnas vistas: {columnas_vistas}"
+        )
 
-    fila = df[df["Entidad Autorizada"].str.contains(ENTIDAD_BUSCADA, case=False, na=False)]
+    fila = df[df["Entidad Autorizada"].astype(str).str.contains(ENTIDAD_BUSCADA, case=False, na=False)]
     if fila.empty:
         raise ValueError(f"No se encontró la entidad '{ENTIDAD_BUSCADA}' en la tabla.")
 
