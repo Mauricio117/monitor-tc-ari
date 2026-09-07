@@ -21,10 +21,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Instalar dependencias
-        run: pip install requests beautifulsoup4 lxml
+      #- name: Instalar dependencias
+        #run: pip install requests beautifulsoup4 lxml
          
-      - name: Instalar dependencias 2
+      - name: Instalar dependencias
         run: pip install requests pandas lxml
 
       - name: Ejecutar monitor
