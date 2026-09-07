@@ -22,7 +22,7 @@ import requests
 
 URL = "https://gee.bccr.fi.cr/IndicadoresEconomicos/Cuadros/frmConsultaTCVentanilla.aspx"
 ENTIDAD_BUSCADA = "ARI Casa de Cambio Internacional"
-NTFY_TOPIC = "CAMBIA-ESTO-por-tu-topic-unico"  # <-- CONFIGURA AQUÍ
+NTFY_TOPIC = "monitor_tc_ari"  # <-- CONFIGURA AQUÍ
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 STATE_FILE = Path(__file__).parent / "estado_tc_ari.json"
