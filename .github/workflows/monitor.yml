@@ -23,6 +23,9 @@ jobs:
 
       - name: Instalar dependencias
         run: pip install requests beautifulsoup4 lxml
+         
+      - name: Instalar dependencias 2
+        run: pip install requests pandas lxml
 
       - name: Ejecutar monitor
         run: python3 monitor_tc_ari.py
