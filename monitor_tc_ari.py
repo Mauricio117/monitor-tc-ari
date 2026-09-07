@@ -29,7 +29,6 @@ STATE_FILE = Path(__file__).parent / "estado_tc_ari.json"
 
 
 def obtener_valores():
-    """Descarga la página y extrae Compra/Venta de la entidad buscada usando pandas."""
     resp = requests.get(URL, timeout=20, headers={
         "User-Agent": "Mozilla/5.0 (monitor personal de tipo de cambio)"
     })
@@ -42,34 +41,31 @@ def obtener_valores():
     )
 
     def normalizar(col):
+        # Aplana columnas MultiIndex (tuplas) a un solo string
+        if isinstance(col, tuple):
+            col = " ".join(str(x) for x in col if str(x).lower() != "nan")
         return str(col).strip().lower()
 
     df = None
     for t in tablas:
         cols_norm = [normalizar(c) for c in t.columns]
-        tiene_entidad = any("entidad autorizada" in c for c in cols_norm)
-        tiene_compra = any(c == "compra" for c in cols_norm)
-        tiene_venta = any(c == "venta" for c in cols_norm)
-        if tiene_entidad and tiene_compra and tiene_venta:
-            # Renombrar columnas a nombres limpios para no depender del texto exacto
-            mapa = {}
-            for c in t.columns:
-                cn = normalizar(c)
-                if "entidad autorizada" in cn:
-                    mapa[c] = "Entidad Autorizada"
-                elif cn == "compra":
-                    mapa[c] = "Compra"
-                elif cn == "venta":
-                    mapa[c] = "Venta"
-            t = t.rename(columns=mapa)
+        idx_entidad = next((i for i, c in enumerate(cols_norm) if "entidad autorizada" in c), None)
+        idx_compra = next((i for i, c in enumerate(cols_norm) if "compra" in c), None)
+        idx_venta = next((i for i, c in enumerate(cols_norm) if "venta" in c), None)
+
+        if idx_entidad is not None and idx_compra is not None and idx_venta is not None:
+            t = t.rename(columns={
+                t.columns[idx_entidad]: "Entidad Autorizada",
+                t.columns[idx_compra]: "Compra",
+                t.columns[idx_venta]: "Venta",
+            })
             df = t
             break
 
     if df is None:
-        # Debug: mostramos qué columnas SÍ se encontraron, para diagnosticar más rápido
         columnas_vistas = [list(t.columns) for t in tablas]
         raise ValueError(
-            "No se encontró la tabla esperada (columnas Entidad Autorizada/Compra/Venta). "
+            "No se encontró la tabla esperada. "
             f"Tablas encontradas: {len(tablas)}. Columnas vistas: {columnas_vistas}"
         )
 
@@ -80,7 +76,6 @@ def obtener_valores():
     compra = float(str(fila.iloc[0]["Compra"]).replace(",", "."))
     venta = float(str(fila.iloc[0]["Venta"]).replace(",", "."))
     return compra, venta
-
 
 def cargar_estado_anterior():
     if STATE_FILE.exists():
