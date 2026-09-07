@@ -36,30 +36,26 @@ def obtener_valores():
 
     tablas = pd.read_html(
         StringIO(resp.text),
-        converters={"Compra": str, "Venta": str},
         thousands=None,
     )
 
-    def normalizar(col):
-        # Aplana columnas MultiIndex (tuplas) a un solo string
-        if isinstance(col, tuple):
-            col = " ".join(str(x) for x in col if str(x).lower() != "nan")
-        return str(col).strip().lower()
+    def normalizar(v):
+        return str(v).strip().lower()
 
     df = None
     for t in tablas:
-        cols_norm = [normalizar(c) for c in t.columns]
-        idx_entidad = next((i for i, c in enumerate(cols_norm) if "entidad autorizada" in c), None)
-        idx_compra = next((i for i, c in enumerate(cols_norm) if "compra" in c), None)
-        idx_venta = next((i for i, c in enumerate(cols_norm) if "venta" in c), None)
-
-        if idx_entidad is not None and idx_compra is not None and idx_venta is not None:
-            t = t.rename(columns={
-                t.columns[idx_entidad]: "Entidad Autorizada",
-                t.columns[idx_compra]: "Compra",
-                t.columns[idx_venta]: "Venta",
-            })
-            df = t
+        # Buscar, dentro de las primeras filas, la que contenga los encabezados reales
+        for i in range(min(3, len(t))):
+            fila_valores = [normalizar(v) for v in t.iloc[i].values]
+            tiene_entidad = any("entidad autorizada" in v for v in fila_valores)
+            tiene_compra = any(v == "compra" for v in fila_valores)
+            tiene_venta = any(v == "venta" for v in fila_valores)
+            if tiene_entidad and tiene_compra and tiene_venta:
+                nuevo = t.iloc[i + 1:].copy()
+                nuevo.columns = [normalizar(v) for v in t.iloc[i].values]
+                df = nuevo
+                break
+        if df is not None:
             break
 
     if df is None:
@@ -68,6 +64,8 @@ def obtener_valores():
             "No se encontró la tabla esperada. "
             f"Tablas encontradas: {len(tablas)}. Columnas vistas: {columnas_vistas}"
         )
+
+    df = df.rename(columns={"entidad autorizada": "Entidad Autorizada", "compra": "Compra", "venta": "Venta"})
 
     fila = df[df["Entidad Autorizada"].astype(str).str.contains(ENTIDAD_BUSCADA, case=False, na=False)]
     if fila.empty:
