@@ -84,8 +84,7 @@ def cargar_estado_anterior():
 def guardar_estado(compra, venta):
     STATE_FILE.write_text(json.dumps({"compra": compra, "venta": venta}))
 
-
-def notificar(mensaje, titulo="Tipo de cambio ARI subió"):
+def notificar(mensaje, titulo="Tipo de cambio ARI cambió", tag="chart_with_upwards_trend"):
     try:
         requests.post(
             NTFY_URL,
@@ -93,13 +92,12 @@ def notificar(mensaje, titulo="Tipo de cambio ARI subió"):
             headers={
                 "Title": titulo.encode("utf-8"),
                 "Priority": "high",
-                "Tags": "chart_with_upwards_trend",
+                "Tags": tag,
             },
             timeout=10,
         )
     except requests.RequestException as e:
         print(f"Error enviando notificación a ntfy: {e}", file=sys.stderr)
-
 
 def main():
     compra, venta = obtener_valores()
@@ -111,21 +109,35 @@ def main():
         print("Primera corrida, guardando estado inicial sin comparar.")
         guardar_estado(compra, venta)
         return
-
+        
     subio_compra = compra > anterior["compra"]
     subio_venta = venta > anterior["venta"]
+    bajo_compra = compra < anterior["compra"]
+    bajo_venta = venta < anterior["venta"]
 
-    if subio_compra or subio_venta:
+    if subio_compra or subio_venta or bajo_compra or bajo_venta:
         partes = []
         if subio_compra:
-            partes.append(f"Compra: {anterior['compra']} → {compra}")
+            partes.append(f"Compra subió: {anterior['compra']} → {compra}")
+        if bajo_compra:
+            partes.append(f"Compra bajó: {anterior['compra']} → {compra}")
         if subio_venta:
-            partes.append(f"Venta: {anterior['venta']} → {venta}")
-        mensaje = "ARI Casa de Cambio subió.\n" + "\n".join(partes)
+            partes.append(f"Venta subió: {anterior['venta']} → {venta}")
+        if bajo_venta:
+            partes.append(f"Venta bajó: {anterior['venta']} → {venta}")
+
+        if subio_compra or subio_venta:
+            titulo = "Tipo de cambio ARI subió"
+            tag = "chart_with_upwards_trend"
+        else:
+            titulo = "Tipo de cambio ARI bajó"
+            tag = "chart_with_downwards_trend"
+
+        mensaje = "\n".join(partes)
         print(mensaje)
-        notificar(mensaje)
+        notificar(mensaje, titulo=titulo, tag=tag)
     else:
-        print("Sin incrementos respecto a la última corrida.")
+        print("Sin cambios respecto a la última corrida.")
 
     guardar_estado(compra, venta)
 
