@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
 Monitor del tipo de cambio de "ARI Casa de Cambio Internacional S.A."
-usando la nueva API del BCCR (SDDE). Notifica por ntfy.sh si Compra
-o Venta cambian (suben o bajan) respecto a la última corrida.
+usando la nueva página del BCCR (SDDE). Como la API interna requiere
+una sesión/token generados por el propio JavaScript de la página, este
+script abre la página con un navegador headless (Playwright) e
+intercepta la respuesta real de red - así no hace falta replicar
+manualmente el token ni las cookies.
+
+Notifica por ntfy.sh si Compra o Venta cambian (suben o bajan)
+respecto a la última corrida.
 
 CONFIGURA ANTES DE USAR:
     - NTFY_TOPIC: tu topic único de ntfy.sh.
@@ -13,43 +19,48 @@ import sys
 from pathlib import Path
 
 import requests
+from playwright.sync_api import sync_playwright
 
-API_URL = (
-    "https://apim.bccr.fi.cr/SDDE/api/Bccr.GE.SDDE.IndicadoresSitioExterno"
-    ".GrupoVariables.API/CuadroPersonalizadoGrupoVariables/ObtenerDatosCuadroPersonalizado"
-)
-ID_GRUPO_VARIABLE = 1015
+PAGINA_URL = "https://sdd.bccr.fi.cr/es/IndicadoresEconomicos/Inicio/Personalizado/2039?Cuadro=1015"
+API_URL_FRAGMENTO = "ObtenerDatosCuadroPersonalizado"  # para identificar la respuesta correcta
 ENTIDAD_BUSCADA = "ARI Casa de Cambio Internacional"
 NTFY_TOPIC = "CAMBIA-ESTO-por-tu-topic-unico"  # <-- CONFIGURA AQUÍ
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 STATE_FILE = Path(__file__).parent / "estado_tc_ari.json"
 
-HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "Origin": "https://sdd.bccr.fi.cr",
-    "Referer": "https://sdd.bccr.fi.cr/es/IndicadoresEconomicos/Inicio/Personalizado/2039?Cuadro=1015",
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    ),
-}
-
 
 def obtener_valores():
-    """Descarga el JSON de la API nueva y extrae Compra/Venta de la entidad buscada."""
-    from datetime import date
+    """Abre la página con Playwright, intercepta la llamada a la API real
+    y extrae Compra/Venta de la entidad buscada."""
 
-    params = {
-        "idGrupoVariable": ID_GRUPO_VARIABLE,
-        "fechaAConsultar": date.today().isoformat(),
-    }
-    resp = requests.get(API_URL, params=params, headers=HEADERS, timeout=20)
-    resp.raise_for_status()
-    data = resp.json()
+    datos_capturados = {}
 
-    # La respuesta puede venir envuelta en una clave (ej. "data" o "resultado").
-    # Si data no es una lista directamente, buscamos la primera lista dentro del dict.
+    def manejar_respuesta(response):
+        if API_URL_FRAGMENTO in response.url and response.status == 200:
+            try:
+                datos_capturados["json"] = response.json()
+            except Exception:
+                pass  # no era JSON válido, ignorar
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.on("response", manejar_respuesta)
+
+        page.goto(PAGINA_URL, wait_until="networkidle", timeout=30000)
+        # Pequeña espera adicional por si la llamada tarda un poco más
+        page.wait_for_timeout(3000)
+
+        browser.close()
+
+    if "json" not in datos_capturados:
+        raise RuntimeError("No se pudo capturar la respuesta de la API en la página.")
+
+    data = datos_capturados["json"]
+
+    # La respuesta puede venir envuelta en una clave; si no es lista, buscamos
+    # la primera lista dentro del dict.
     lista = data
     if isinstance(data, dict):
         for v in data.values():
