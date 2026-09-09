@@ -59,33 +59,29 @@ def obtener_valores():
 
     data = datos_capturados["json"]
 
-    # La respuesta puede venir envuelta en una clave; si no es lista, buscamos
-    # la primera lista dentro del dict.
-    lista = data
-    if isinstance(data, dict):
-        for v in data.values():
-            if isinstance(v, list):
-                lista = v
-                break
+    # La estructura real es: data["datos"]["indicadores"] = lista de filas,
+    # donde cada fila es una lista de objetos. La fila de una entidad con
+    # valores tiene 5 elementos: [Entidad, Compra, Venta, Diferencial, Fecha].
+    indicadores = data.get("datos", {}).get("indicadores", [])
 
-    idx_nombre = None
-    for i, item in enumerate(lista):
-        if not isinstance(item, dict):
+    fila_encontrada = None
+    for fila in indicadores:
+        if not isinstance(fila, list) or len(fila) < 3:
             continue
-        valor = str(item.get("valorEspanol", ""))
-        if ENTIDAD_BUSCADA.lower() in valor.lower():
-            idx_nombre = i
+        primer_valor = str(fila[0].get("valorEspanol", ""))
+        if ENTIDAD_BUSCADA.lower() in primer_valor.lower():
+            fila_encontrada = fila
             break
 
-    if idx_nombre is None:
+    if fila_encontrada is None:
         # Volcamos el JSON completo al log para poder diagnosticar su
         # estructura real si esto vuelve a fallar.
         print("DEBUG - JSON completo capturado:")
         print(json.dumps(data, ensure_ascii=False, indent=2)[:5000])
         raise ValueError(f"No se encontró la entidad '{ENTIDAD_BUSCADA}' en la respuesta.")
 
-    compra_raw = str(lista[idx_nombre + 1]["valorEspanol"])
-    venta_raw = str(lista[idx_nombre + 2]["valorEspanol"])
+    compra_raw = str(fila_encontrada[1]["valorEspanol"])
+    venta_raw = str(fila_encontrada[2]["valorEspanol"])
 
     compra = float(compra_raw.replace(",", "."))
     venta = float(venta_raw.replace(",", "."))
