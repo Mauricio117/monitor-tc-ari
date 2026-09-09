@@ -70,12 +70,18 @@ def obtener_valores():
 
     idx_nombre = None
     for i, item in enumerate(lista):
+        if not isinstance(item, dict):
+            continue
         valor = str(item.get("valorEspanol", ""))
         if ENTIDAD_BUSCADA.lower() in valor.lower():
             idx_nombre = i
             break
 
     if idx_nombre is None:
+        # Volcamos el JSON completo al log para poder diagnosticar su
+        # estructura real si esto vuelve a fallar.
+        print("DEBUG - JSON completo capturado:")
+        print(json.dumps(data, ensure_ascii=False, indent=2)[:5000])
         raise ValueError(f"No se encontró la entidad '{ENTIDAD_BUSCADA}' en la respuesta.")
 
     compra_raw = str(lista[idx_nombre + 1]["valorEspanol"])
