@@ -24,7 +24,7 @@ from playwright.sync_api import sync_playwright
 PAGINA_URL = "https://sdd.bccr.fi.cr/es/IndicadoresEconomicos/Inicio/Personalizado/2039?Cuadro=1015"
 API_URL_FRAGMENTO = "ObtenerDatosCuadroPersonalizado"  # para identificar la respuesta correcta
 ENTIDAD_BUSCADA = "ARI Casa de Cambio Internacional"
-NTFY_TOPIC = "monitor_tc_ari"  # <-- CONFIGURA AQUÍ
+NTFY_TOPIC = "CAMBIA-ESTO-por-tu-topic-unico"  # <-- CONFIGURA AQUÍ
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 STATE_FILE = Path(__file__).parent / "estado_tc_ari.json"
@@ -48,9 +48,12 @@ def obtener_valores():
         page = browser.new_page()
         page.on("response", manejar_respuesta)
 
-        page.goto(PAGINA_URL, wait_until="networkidle", timeout=30000)
-        # Pequeña espera adicional por si la llamada tarda un poco más
-        page.wait_for_timeout(3000)
+        # Esperamos la respuesta específica de la API en vez de "networkidle"
+        # (networkidle puede colgarse por telemetría de fondo que nunca cesa).
+        with page.expect_response(
+            lambda r: API_URL_FRAGMENTO in r.url, timeout=30000
+        ):
+            page.goto(PAGINA_URL, wait_until="domcontentloaded", timeout=30000)
 
         browser.close()
 
