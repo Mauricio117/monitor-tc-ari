@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar dependencias
-        run: pip install requests pandas lxml
+        run: pip install requests
 
       - name: Ejecutar monitor
         run: python3 monitor_tc_ari.py
