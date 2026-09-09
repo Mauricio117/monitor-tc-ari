@@ -1,79 +1,79 @@
 #!/usr/bin/env python3
 """
 Monitor del tipo de cambio de "ARI Casa de Cambio Internacional S.A."
-en la página de ventanilla del BCCR. Si Compra o Venta suben respecto
-a la última corrida, envía una notificación push vía ntfy.sh.
-
-Uso:
-    python3 monitor_tc_ari.py
+usando la nueva API del BCCR (SDDE). Notifica por ntfy.sh si Compra
+o Venta cambian (suben o bajan) respecto a la última corrida.
 
 CONFIGURA ANTES DE USAR:
-    - NTFY_TOPIC: escoge un nombre único (letras/números/guiones) y
-      suscríbete a ese mismo topic desde la app de ntfy en tu celular.
+    - NTFY_TOPIC: tu topic único de ntfy.sh.
 """
 
 import json
 import sys
-from io import StringIO
 from pathlib import Path
 
-import pandas as pd
 import requests
 
-URL = "https://gee.bccr.fi.cr/IndicadoresEconomicos/Cuadros/frmConsultaTCVentanilla.aspx"
+API_URL = (
+    "https://apim.bccr.fi.cr/SDDE/api/Bccr.GE.SDDE.IndicadoresSitioExterno"
+    ".GrupoVariables.API/CuadroPersonalizadoGrupoVariables/ObtenerDatosCuadroPersonalizado"
+)
+ID_GRUPO_VARIABLE = 1015
 ENTIDAD_BUSCADA = "ARI Casa de Cambio Internacional"
-NTFY_TOPIC = "monitor_tc_ari"  # <-- CONFIGURA AQUÍ
+NTFY_TOPIC = "CAMBIA-ESTO-por-tu-topic-unico"  # <-- CONFIGURA AQUÍ
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 STATE_FILE = Path(__file__).parent / "estado_tc_ari.json"
 
+HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Origin": "https://sdd.bccr.fi.cr",
+    "Referer": "https://sdd.bccr.fi.cr/es/IndicadoresEconomicos/Inicio/Personalizado/2039?Cuadro=1015",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    ),
+}
+
 
 def obtener_valores():
-    resp = requests.get(URL, timeout=20, headers={
-        "User-Agent": "Mozilla/5.0 (monitor personal de tipo de cambio)"
-    })
+    """Descarga el JSON de la API nueva y extrae Compra/Venta de la entidad buscada."""
+    from datetime import date
+
+    params = {
+        "idGrupoVariable": ID_GRUPO_VARIABLE,
+        "fechaAConsultar": date.today().isoformat(),
+    }
+    resp = requests.get(API_URL, params=params, headers=HEADERS, timeout=20)
     resp.raise_for_status()
+    data = resp.json()
 
-    tablas = pd.read_html(
-        StringIO(resp.text),
-        thousands=None,
-    )
-
-    def normalizar(v):
-        return str(v).strip().lower()
-
-    df = None
-    for t in tablas:
-        # Buscar, dentro de las primeras filas, la que contenga los encabezados reales
-        for i in range(min(3, len(t))):
-            fila_valores = [normalizar(v) for v in t.iloc[i].values]
-            tiene_entidad = any("entidad autorizada" in v for v in fila_valores)
-            tiene_compra = any(v == "compra" for v in fila_valores)
-            tiene_venta = any(v == "venta" for v in fila_valores)
-            if tiene_entidad and tiene_compra and tiene_venta:
-                nuevo = t.iloc[i + 1:].copy()
-                nuevo.columns = [normalizar(v) for v in t.iloc[i].values]
-                df = nuevo
+    # La respuesta puede venir envuelta en una clave (ej. "data" o "resultado").
+    # Si data no es una lista directamente, buscamos la primera lista dentro del dict.
+    lista = data
+    if isinstance(data, dict):
+        for v in data.values():
+            if isinstance(v, list):
+                lista = v
                 break
-        if df is not None:
+
+    idx_nombre = None
+    for i, item in enumerate(lista):
+        valor = str(item.get("valorEspanol", ""))
+        if ENTIDAD_BUSCADA.lower() in valor.lower():
+            idx_nombre = i
             break
 
-    if df is None:
-        columnas_vistas = [list(t.columns) for t in tablas]
-        raise ValueError(
-            "No se encontró la tabla esperada. "
-            f"Tablas encontradas: {len(tablas)}. Columnas vistas: {columnas_vistas}"
-        )
+    if idx_nombre is None:
+        raise ValueError(f"No se encontró la entidad '{ENTIDAD_BUSCADA}' en la respuesta.")
 
-    df = df.rename(columns={"entidad autorizada": "Entidad Autorizada", "compra": "Compra", "venta": "Venta"})
+    compra_raw = str(lista[idx_nombre + 1]["valorEspanol"])
+    venta_raw = str(lista[idx_nombre + 2]["valorEspanol"])
 
-    fila = df[df["Entidad Autorizada"].astype(str).str.contains(ENTIDAD_BUSCADA, case=False, na=False)]
-    if fila.empty:
-        raise ValueError(f"No se encontró la entidad '{ENTIDAD_BUSCADA}' en la tabla.")
-
-    compra = float(str(fila.iloc[0]["Compra"]).replace(",", "."))
-    venta = float(str(fila.iloc[0]["Venta"]).replace(",", "."))
+    compra = float(compra_raw.replace(",", "."))
+    venta = float(venta_raw.replace(",", "."))
     return compra, venta
+
 
 def cargar_estado_anterior():
     if STATE_FILE.exists():
@@ -83,6 +83,7 @@ def cargar_estado_anterior():
 
 def guardar_estado(compra, venta):
     STATE_FILE.write_text(json.dumps({"compra": compra, "venta": venta}))
+
 
 def notificar(mensaje, titulo="Tipo de cambio ARI cambió", tag="chart_with_upwards_trend"):
     try:
@@ -99,6 +100,7 @@ def notificar(mensaje, titulo="Tipo de cambio ARI cambió", tag="chart_with_upwa
     except requests.RequestException as e:
         print(f"Error enviando notificación a ntfy: {e}", file=sys.stderr)
 
+
 def main():
     compra, venta = obtener_valores()
     print(f"Valor actual -> Compra: {compra}  Venta: {venta}")
@@ -109,7 +111,7 @@ def main():
         print("Primera corrida, guardando estado inicial sin comparar.")
         guardar_estado(compra, venta)
         return
-        
+
     subio_compra = compra > anterior["compra"]
     subio_venta = venta > anterior["venta"]
     bajo_compra = compra < anterior["compra"]
@@ -127,11 +129,9 @@ def main():
             partes.append(f"Venta bajó: {anterior['venta']} → {venta}")
 
         if subio_compra or subio_venta:
-            titulo = "Tipo de cambio ARI subió"
-            tag = "chart_with_upwards_trend"
+            titulo, tag = "Tipo de cambio ARI subió", "chart_with_upwards_trend"
         else:
-            titulo = "Tipo de cambio ARI bajó"
-            tag = "chart_with_downwards_trend"
+            titulo, tag = "Tipo de cambio ARI bajó", "chart_with_downwards_trend"
 
         mensaje = "\n".join(partes)
         print(mensaje)
