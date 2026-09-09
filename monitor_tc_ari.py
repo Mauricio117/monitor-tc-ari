@@ -24,7 +24,7 @@ from playwright.sync_api import sync_playwright
 PAGINA_URL = "https://sdd.bccr.fi.cr/es/IndicadoresEconomicos/Inicio/Personalizado/2039?Cuadro=1015"
 API_URL_FRAGMENTO = "ObtenerDatosCuadroPersonalizado"  # para identificar la respuesta correcta
 ENTIDAD_BUSCADA = "ARI Casa de Cambio Internacional"
-NTFY_TOPIC = "CAMBIA-ESTO-por-tu-topic-unico"  # <-- CONFIGURA AQUÍ
+NTFY_TOPIC = "monitor_tc_ari"  # <-- CONFIGURA AQUÍ
 NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 STATE_FILE = Path(__file__).parent / "estado_tc_ari.json"
